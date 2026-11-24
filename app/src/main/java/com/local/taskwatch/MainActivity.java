@@ -1,6 +1,11 @@
 package com.local.taskwatch;
 
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Ashwini215
+ */
 import android.app.Activity;
+import android.content.res.ColorStateList;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
@@ -15,14 +20,20 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
-import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.app.AlertDialog;
+import android.text.Editable;
+import android.text.TextWatcher;
+
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.checkbox.MaterialCheckBox;
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -44,13 +55,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class MainActivity extends Activity {
-    private static final int BG = 0xFFF4F6FA;
-    private static final int PANEL = 0xFFFFFFFF;
-    private static final int INK = 0xFF162337;
-    private static final int MUTED = 0xFF6D7B8E;
-    private static final int ACCENT = 0xFF5265E8;
-    private static final int PALE_BLUE = 0xFFEEF0FF;
-    private static final int RED = 0xFFB43D50;
+    private int BG = 0xFFF4F6FA;
+    private int PANEL = 0xFFFFFFFF;
+    private int INK = 0xFF162337;
+    private int MUTED = 0xFF6D7B8E;
+    private int ACCENT = 0xFF5265E8;
+    private int PALE_BLUE = 0xFFEEF0FF;
+    private int RED = 0xFFB43D50;
     private static final long REFRESH_INTERVAL_MS = 3_000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -65,9 +76,12 @@ public final class MainActivity extends Activity {
     private TextView statusDetail;
     private TextView updatedLabel;
     private TextView selectedLabel;
-    private Button rootButton;
-    private Button forceStopButton;
-    private Button selectAllButton;
+    private MaterialButton rootButton;
+    private MaterialButton forceStopButton;
+    private MaterialButton selectAllButton;
+    private TextInputEditText searchInput;
+    private TextView helpDetails;
+    private boolean helpExpanded;
 
     private List<ApplicationInfo> installedApps = new ArrayList<>();
     private List<RunningApp> runningApps = new ArrayList<>();
@@ -127,10 +141,22 @@ public final class MainActivity extends Activity {
 
     private void configureSystemBars() {
         Window window = getWindow();
+        BG = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface, BG);
+        PANEL = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainerLow, PANEL);
+        INK = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, INK);
+        MUTED = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, MUTED);
+        ACCENT = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, ACCENT);
+        PALE_BLUE = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, PALE_BLUE);
+        RED = MaterialColors.getColor(this, com.google.android.material.R.attr.colorError, RED);
         window.setStatusBarColor(BG);
         window.setNavigationBarColor(BG);
-        window.getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        int nightMode = getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        boolean lightSystemBars = nightMode != android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        int systemBarFlags = lightSystemBars
+                ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                : 0;
+        window.getDecorView().setSystemUiVisibility(systemBarFlags);
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false);
         }
@@ -179,7 +205,7 @@ public final class MainActivity extends Activity {
         header.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout titleStack = textStack("Background Monitor", "Root-powered · local only", 22, 14);
         header.addView(titleStack, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button exitButton = smallButton("Exit");
+        MaterialButton exitButton = smallButton("Exit");
         exitButton.setOnClickListener(v -> exitMonitor());
         header.addView(exitButton);
         root.addView(header, marginParams(-1, -2, 0, 0, 0, 16));
@@ -191,12 +217,12 @@ public final class MainActivity extends Activity {
         statusDetail.setLineSpacing(dp(2), 1f);
         statusCard.addView(statusTitle);
         statusCard.addView(statusDetail, marginParams(-1, -2, 0, 8, 0, 0));
-        rootButton = new Button(this);
+        rootButton = new MaterialButton(this);
         rootButton.setAllCaps(false);
         rootButton.setTextColor(0xFFFFFFFF);
         rootButton.setTextSize(15);
         rootButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        rootButton.setBackground(round(ACCENT, 14));
+        rootButton.setBackgroundTintList(ColorStateList.valueOf(ACCENT));
         rootButton.setOnClickListener(v -> readProcesses());
         statusCard.addView(rootButton, marginParams(-1, dp(48), 0, 12, 0, 0));
         root.addView(statusCard, marginParams(-1, -2, 0, 0, 0, 10));
@@ -209,11 +235,35 @@ public final class MainActivity extends Activity {
         infoCard.addView(info);
         root.addView(infoCard, marginParams(-1, -2, 0, 0, 0, 14));
 
+        TextInputLayout searchLayout = new TextInputLayout(this);
+        searchLayout.setHint("Search running apps");
+        searchLayout.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        searchLayout.setStartIconDrawable(android.R.drawable.ic_menu_search);
+        searchLayout.setEndIconMode(TextInputLayout.END_ICON_CLEAR_TEXT);
+        searchInput = new TextInputEditText(searchLayout.getContext());
+        searchInput.setSingleLine(true);
+        searchInput.setContentDescription("Search by app name or package");
+        searchLayout.addView(searchInput, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(searchLayout, marginParams(-1, -2, 0, 0, 0, 12));
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                renderRows();
+                renderSelectionControls();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) { }
+        });
+
         LinearLayout sectionHeader = new LinearLayout(this);
         sectionHeader.setGravity(Gravity.CENTER_VERTICAL);
         TextView sectionTitle = makeText("Running apps", 18, INK, true);
         sectionHeader.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        selectAllButton = smallButton("Select all");
+        selectAllButton = smallButton("Select visible");
         selectAllButton.setOnClickListener(v -> toggleSelectAll());
         sectionHeader.addView(selectAllButton);
         root.addView(sectionHeader, marginParams(-1, -2, 2, 0, 0, 6));
@@ -228,16 +278,39 @@ public final class MainActivity extends Activity {
         processScroll.addView(processRows, new ScrollView.LayoutParams(-1, -2));
         root.addView(processScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
+        LinearLayout helpCard = panel(14);
+        helpCard.setOrientation(LinearLayout.VERTICAL);
+        TextView helpTitle = makeText("How it works & what you need", 15, INK, true);
+        TextView helpSummary = makeText("Tap to show requirements and force-stop details", 12, MUTED, false);
+        helpDetails = makeText(
+                "A rooted phone and a root manager such as Magisk or KernelSU are required. "
+                        + "Approve the su request when prompted. The list refreshes every 3 seconds while open. "
+                        + "Force stop asks Android to stop each selected package; Android can start it again later. "
+                        + "The app has no internet permission.",
+                13, MUTED, false);
+        helpDetails.setVisibility(View.GONE);
+        helpCard.addView(helpTitle);
+        helpCard.addView(helpSummary, marginParams(-1, -2, 0, 4, 0, 0));
+        helpCard.addView(helpDetails, marginParams(-1, -2, 0, 10, 0, 0));
+        helpCard.setClickable(true);
+        helpCard.setFocusable(true);
+        helpCard.setOnClickListener(v -> {
+            helpExpanded = !helpExpanded;
+            helpDetails.setVisibility(helpExpanded ? View.VISIBLE : View.GONE);
+            helpSummary.setText(helpExpanded ? "Tap to hide details" : "Tap to show requirements and force-stop details");
+        });
+        root.addView(helpCard, marginParams(-1, -2, 0, 8, 0, 8));
+
         LinearLayout footer = panel(14);
         footer.setOrientation(LinearLayout.VERTICAL);
         selectedLabel = makeText("0 selected", 13, MUTED, true);
         footer.addView(selectedLabel);
-        forceStopButton = new Button(this);
+        forceStopButton = new MaterialButton(this);
         forceStopButton.setAllCaps(false);
         forceStopButton.setTextColor(0xFFFFFFFF);
         forceStopButton.setTextSize(15);
         forceStopButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        forceStopButton.setBackground(round(RED, 14));
+        forceStopButton.setBackgroundTintList(ColorStateList.valueOf(RED));
         forceStopButton.setOnClickListener(v -> confirmForceStop());
         footer.addView(forceStopButton, marginParams(-1, dp(48), 0, 8, 0, 0));
         root.addView(footer, marginParams(-1, -2, 0, 10, 0, 0));
@@ -279,14 +352,34 @@ public final class MainActivity extends Activity {
         processRows.removeAllViews();
         if (!rootConnected) {
             addEmptyMessage(rootBusy ? "Waiting for the root manager…" : "Connect to root to view live app processes.");
-        } else if (runningApps.isEmpty()) {
-            addEmptyMessage("No background app processes found.");
         } else {
-            for (RunningApp app : runningApps) {
+            List<RunningApp> visibleApps = filteredApps();
+            if (visibleApps.isEmpty()) {
+                String query = searchInput == null || searchInput.getText() == null
+                        ? "" : searchInput.getText().toString().trim();
+                addEmptyMessage(query.isEmpty()
+                        ? "No background app processes found."
+                        : "No running apps match “" + query + "”.");
+            }
+            for (RunningApp app : visibleApps) {
                 processRows.addView(makeAppRow(app), marginParams(-1, -2, 0, 0, 0, 8));
             }
         }
         processRows.post(() -> processScroll.scrollTo(0, scrollY));
+    }
+
+    private List<RunningApp> filteredApps() {
+        String query = searchInput == null || searchInput.getText() == null
+                ? "" : searchInput.getText().toString().trim().toLowerCase(Locale.ROOT);
+        List<RunningApp> filtered = new ArrayList<>();
+        for (RunningApp app : runningApps) {
+            if (query.isEmpty()
+                    || app.label.toLowerCase(Locale.ROOT).contains(query)
+                    || app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
+                filtered.add(app);
+            }
+        }
+        return filtered;
     }
 
     private View makeAppRow(RunningApp app) {
@@ -309,7 +402,7 @@ public final class MainActivity extends Activity {
         names.addView(details, marginParams(-1, -2, 0, 3, 0, 0));
         row.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        CheckBox checkbox = new CheckBox(this);
+        MaterialCheckBox checkbox = new MaterialCheckBox(this);
         checkbox.setButtonTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         checkbox.setChecked(selectedPackages.contains(app.packageName));
         checkbox.setContentDescription("Select " + app.label);
@@ -361,12 +454,20 @@ public final class MainActivity extends Activity {
     private void renderSelectionControls() {
         if (selectedLabel == null) return;
         int selectedCount = selectedPackages.size();
-        selectedLabel.setText(selectedCount + (selectedCount == 1 ? " app selected" : " apps selected"));
+        selectedLabel.setText(selectedCount == 0 ? "Select apps to force stop"
+                : selectedCount + (selectedCount == 1 ? " app selected" : " apps selected"));
         forceStopButton.setText(forceStopBusy ? "Force stopping…" : "Force stop selected" + (selectedCount > 0 ? " (" + selectedCount + ")" : ""));
         forceStopButton.setEnabled(rootConnected && selectedCount > 0 && !forceStopBusy && !rootBusy);
-        selectAllButton.setEnabled(rootConnected && !runningApps.isEmpty() && !forceStopBusy);
-        boolean allSelected = !runningApps.isEmpty() && selectedCount == runningApps.size();
-        selectAllButton.setText(allSelected ? "Clear selection" : "Select all");
+        List<RunningApp> visibleApps = filteredApps();
+        selectAllButton.setEnabled(rootConnected && !visibleApps.isEmpty() && !forceStopBusy && !rootBusy);
+        boolean allSelected = !visibleApps.isEmpty();
+        for (RunningApp app : visibleApps) {
+            if (!selectedPackages.contains(app.packageName)) {
+                allSelected = false;
+                break;
+            }
+        }
+        selectAllButton.setText(allSelected ? "Clear visible" : "Select visible");
     }
 
     private void updateTimestamp() {
@@ -382,11 +483,20 @@ public final class MainActivity extends Activity {
 
     private void toggleSelectAll() {
         if (!rootConnected) return;
-        if (selectedPackages.size() == runningApps.size()) {
-            selectedPackages.clear();
-        } else {
-            selectedPackages.clear();
-            for (RunningApp app : runningApps) selectedPackages.add(app.packageName);
+        List<RunningApp> visibleApps = filteredApps();
+        boolean allSelected = !visibleApps.isEmpty();
+        for (RunningApp app : visibleApps) {
+            if (!selectedPackages.contains(app.packageName)) {
+                allSelected = false;
+                break;
+            }
+        }
+        for (RunningApp app : visibleApps) {
+            if (allSelected) {
+                selectedPackages.remove(app.packageName);
+            } else {
+                selectedPackages.add(app.packageName);
+            }
         }
         renderRows();
         renderSelectionControls();
@@ -567,9 +677,9 @@ public final class MainActivity extends Activity {
             if (names.length() > 0) names.append('\n');
             names.append("• ").append(app.label);
         }
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle("Force stop " + chosen.size() + (chosen.size() == 1 ? " app?" : " apps?"))
-                .setMessage(names + "\n\nThis sends a force-stop request to Android for each selected package.")
+                .setMessage(names + "\n\nAndroid may start these apps again when you launch them or when the system needs them.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Force stop", (dialog, which) -> forceStop(chosen))
                 .show();
@@ -640,6 +750,7 @@ public final class MainActivity extends Activity {
         LinearLayout view = new LinearLayout(this);
         view.setPadding(dp(padding), dp(padding), dp(padding), dp(padding));
         view.setBackground(round(PANEL, 18));
+        view.setElevation(dp(1));
         return view;
     }
 
@@ -651,8 +762,8 @@ public final class MainActivity extends Activity {
         return stack;
     }
 
-    private Button smallButton(String label) {
-        Button button = new Button(this);
+    private MaterialButton smallButton(String label) {
+        MaterialButton button = new MaterialButton(this);
         button.setText(label);
         button.setAllCaps(false);
         button.setTextSize(13);
@@ -660,7 +771,7 @@ public final class MainActivity extends Activity {
         button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setPadding(dp(10), 0, dp(10), 0);
-        button.setBackground(round(PALE_BLUE, 12));
+        button.setBackgroundTintList(ColorStateList.valueOf(PALE_BLUE));
         return button;
     }
 
@@ -731,3 +842,4 @@ public final class MainActivity extends Activity {
         }
     }
 }
+

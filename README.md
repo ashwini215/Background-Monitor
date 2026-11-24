@@ -1,28 +1,45 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 # Background Monitor
 
-A small, offline Android app for rooted phones. It shows installed app processes that are currently running in the background, lets you select several apps, and asks Android to force-stop the selected packages through `su`.
+Background Monitor is a small, offline Android utility for rooted phones. It shows app processes currently running in the background, lets you search and multi-select apps, and asks Android to force stop the selected packages through root access.
 
-## What it does
+## What the app does
 
-- Reads `dumpsys activity` and the process table through `su`.
-- Refreshes every three seconds while the screen is open.
-- Groups multiple processes under their app and shows the process count and one PID.
-- Uses `am force-stop --user current` for each selected package.
-- Has an Exit button that closes the task and terminates this app's process.
-- Declares no `INTERNET` permission and includes no networking library or background service.
+- Shows installed apps with detected background processes, app icons, process counts, and process IDs.
+- Refreshes automatically every three seconds while the app is open; the toolbar also has a manual refresh action.
+- Searches by app label or package name.
+- Selects all visible search results or individual apps, then confirms before sending force-stop requests.
+- Uses Material 3 components and Android dynamic colors on Android 12 and newer.
+- Checks processes only while the screen is open. It does not run a service or keep polling after you leave.
+- Has no internet permission, network client, analytics, or remote service.
+- Includes an Exit action that closes the task and terminates the monitor process.
 
-The first time you press **Connect to root**, approve the request in Magisk, KernelSU, or another `su` manager. If you deny it, use **Retry root access** after granting it in the root manager.
+The process list is a live snapshot, not a permanent list of every Android service. It maps process names to installed app packages and omits the app currently in the foreground and system processes that cannot be mapped to an installed app.
 
-## Build
+## What you need
 
-The project uses Java 17, Android Gradle Plugin 9.3.3, Gradle 9.5.0, `compileSdk 37`, `targetSdk 37`, and `minSdk 26`. The GitHub Actions workflow at `.github/workflows/build-apk.yml` installs the Android 17 SDK, builds a debug APK, and publishes it as the `BackgroundMonitor-debug-apk` artifact. Push this project to a GitHub repository, then run **Actions > Build debug APK > Run workflow**; pushes to `main` or `master` also trigger a build. The build runner needs network access to download the Android tools and Gradle plugin. The installed app itself has no network permission.
+- A rooted Android device running Android 8.0 / API 26 or newer.
+- A working su root manager, such as Magisk or KernelSU.
+- Root permission approved for Background Monitor when its first request appears.
+- Android 12 or newer for wallpaper-based Material You colors. Earlier supported Android versions use the theme fallback palette.
 
-You can also open the folder in Android Studio with the Android 17 / API 37 SDK installed and choose **Build > Build APK(s)**. Install the generated `app-debug.apk` on the rooted phone.
+The app declares QUERY_ALL_PACKAGES so it can match process names against installed apps. It does not declare INTERNET.
 
-## Notes
+Force stop asks Android to stop each selected package for the current user. Android may start a package again after you launch it, receive a system request, or reboot the phone. Force stop is not an uninstall, disable, or permanent background restriction.
 
-- Root is required for the process list and force-stop action. Without a working `su` binary and an approved root request, the app shows a root-access error.
-- The monitor is intentionally foreground-only: it performs no polling after you leave the screen and has no service, receiver, or scheduled job keeping it alive.
-- It groups process names that Android's process table can map to installed packages, and omits unassociated system daemons and the currently resumed app.
-- Force stop applies to the app package and all of its processes. Android puts that package in the stopped state; it can run again after a user or system action starts it.
-- Package names are taken from Android's package manager and validated before being added to the shell command.
+## Build a signed release APK on GitHub
+
+See [GITHUB_RELEASE_GUIDE.md](GITHUB_RELEASE_GUIDE.md) for the signing-key setup, repository secrets, workflow run, and APK download steps. The release workflow is .github/workflows/release-apk.yml.
+
+GitHub Actions builds with Java 17, Gradle 9.5, Android Gradle Plugin 9.3.3, and the Android 17 preview SDK (API 37). The Android 17 SDK requires the preview channel during SDK installation. The APK itself runs offline.
+
+## Source and acknowledgement
+
+This is an independent, minimal implementation. Its feature concept was inspired by [App Manager](https://github.com/MuntashirAkon/AppManager) by Muntashir Al-Islam, a much larger Android package-management application. No App Manager source files or binaries are included in this repository.
+
+## License
+
+Copyright (C) 2026 Ashwini215
+
+This project is licensed under the GNU General Public License, version 3 only (GPL-3.0-only). See [LICENSE](LICENSE) for the complete terms. Third-party dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+

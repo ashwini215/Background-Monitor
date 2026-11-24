@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"
@@ -7,3 +8,4 @@
     <path android:fillColor="#FFFFFF" android:pathData="M12,14h24a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-24a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2zM12,23h18a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-18a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2zM12,32h12a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-12a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
     <path android:fillColor="#9DF0D1" android:pathData="M35,30a6,6 0,1 0,0 12a6,6 0,0 0,0 -12z" />
 </vector>
+

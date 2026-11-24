@@ -1,7 +1,9 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
+        android:name=".BackgroundMonitorApp"
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="Background Monitor"
@@ -18,3 +20,4 @@
         </activity>
     </application>
 </manifest>
+
