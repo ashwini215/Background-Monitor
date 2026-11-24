@@ -145,9 +145,9 @@ public final class MainActivity extends Activity {
         PANEL = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainerLow, PANEL);
         INK = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, INK);
         MUTED = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, MUTED);
-        ACCENT = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, ACCENT);
+        ACCENT = MaterialColors.getColor(this, android.R.attr.colorAccent, ACCENT);
         PALE_BLUE = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, PALE_BLUE);
-        RED = MaterialColors.getColor(this, com.google.android.material.R.attr.colorError, RED);
+        RED = MaterialColors.getColor(this, android.R.attr.colorError, RED);
         window.setStatusBarColor(BG);
         window.setNavigationBarColor(BG);
         int nightMode = getResources().getConfiguration().uiMode
