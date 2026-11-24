@@ -3,7 +3,7 @@
 
 ## Material Components for Android
 
-This project uses Material Components for Android version 1.14.0 for Material 3 widgets and dynamic color support. Material Components for Android is distributed under the Apache License, Version 2.0:
+This project uses Material Components for Android version 1.14.0 for Material 3 widgets and dynamic color support. Material Components for Android and its AndroidX support libraries are distributed under the Apache License, Version 2.0. A copy of the license is included in THIRD_PARTY_LICENSES/Apache-2.0.txt.
 
 https://github.com/material-components/material-components-android
 
