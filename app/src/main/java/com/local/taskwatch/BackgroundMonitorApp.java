@@ -6,14 +6,10 @@ package com.local.taskwatch;
  */
 import android.app.Application;
 
-import com.google.android.material.color.DynamicColors;
-
-/** Applies the user's Android wallpaper colors to Material 3 components on Android 12+. */
+/** Application entry point. The activity applies wallpaper colors only when selected in Settings. */
 public final class BackgroundMonitorApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        DynamicColors.applyToActivitiesIfAvailable(this);
     }
 }
-

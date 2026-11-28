@@ -29,9 +29,11 @@ import android.text.Editable;
 import android.text.TextWatcher;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.color.MaterialColors;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.color.DynamicColors;
+import com.google.android.material.radiobutton.MaterialRadioButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 
@@ -55,6 +57,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class MainActivity extends Activity {
+    private static final String PREFS_NAME = "background_monitor_settings";
+    private static final String PREF_THEME = "theme_mode";
+    private static final String STATE_SETTINGS = "showing_settings";
+    private static final String STATE_ROOT_CONNECTED = "root_connected";
+    private static final String STATE_SELECTED_PACKAGES = "selected_packages";
+    private static final String STATE_APP_FILTER = "app_filter";
+    private static final int FILTER_ALL = 0;
+    private static final int FILTER_USER = 1;
+    private static final int FILTER_SYSTEM = 2;
     private int BG = 0xFFF4F6FA;
     private int PANEL = 0xFFFFFFFF;
     private int INK = 0xFF162337;
@@ -76,12 +87,14 @@ public final class MainActivity extends Activity {
     private TextView statusDetail;
     private TextView updatedLabel;
     private TextView selectedLabel;
+    private TextView sectionTitle;
     private MaterialButton rootButton;
     private MaterialButton forceStopButton;
     private MaterialButton selectAllButton;
+    private MaterialButtonToggleGroup appFilterGroup;
     private TextInputEditText searchInput;
-    private TextView helpDetails;
-    private boolean helpExpanded;
+    private boolean showingSettings;
+    private int appFilter = FILTER_ALL;
 
     private List<ApplicationInfo> installedApps = new ArrayList<>();
     private List<RunningApp> runningApps = new ArrayList<>();
@@ -94,7 +107,7 @@ public final class MainActivity extends Activity {
     private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
-            if (resumed && rootConnected && !rootBusy && !forceStopBusy) {
+            if (resumed && !showingSettings && rootConnected && !rootBusy && !forceStopBusy) {
                 readProcesses();
             }
             if (resumed) {
@@ -105,22 +118,58 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        String themeMode = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getString(PREF_THEME, "system");
+        if ("light".equals(themeMode)) {
+            setTheme(R.style.AppThemeLight);
+        } else if ("dark".equals(themeMode)) {
+            setTheme(R.style.AppThemeDark);
+        }
         super.onCreate(savedInstanceState);
+        if ("dynamic".equals(themeMode)) {
+            DynamicColors.applyToActivityIfAvailable(this);
+        }
+        if (savedInstanceState != null) {
+            showingSettings = savedInstanceState.getBoolean(STATE_SETTINGS, false);
+            rootConnected = savedInstanceState.getBoolean(STATE_ROOT_CONNECTED, false);
+            appFilter = savedInstanceState.getInt(STATE_APP_FILTER, FILTER_ALL);
+            ArrayList<String> restoredSelection = savedInstanceState.getStringArrayList(STATE_SELECTED_PACKAGES);
+            if (restoredSelection != null) selectedPackages.addAll(restoredSelection);
+        }
         configureSystemBars();
         loadInstalledApps();
-        buildInterface();
+        if (showingSettings) buildSettingsInterface();
+        else buildInterface();
         renderState();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(STATE_SETTINGS, showingSettings);
+        outState.putBoolean(STATE_ROOT_CONNECTED, rootConnected);
+        outState.putInt(STATE_APP_FILTER, appFilter);
+        outState.putStringArrayList(STATE_SELECTED_PACKAGES, new ArrayList<>(selectedPackages));
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (showingSettings) {
+            showMainScreen();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         resumed = true;
-        if (rootConnected) {
+        if (rootConnected && !showingSettings) {
             readProcesses();
         }
         mainHandler.removeCallbacks(pollRunnable);
-        mainHandler.postDelayed(pollRunnable, REFRESH_INTERVAL_MS);
+        if (!showingSettings) mainHandler.postDelayed(pollRunnable, REFRESH_INTERVAL_MS);
     }
 
     @Override
@@ -153,7 +202,10 @@ public final class MainActivity extends Activity {
         int nightMode = getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         boolean lightSystemBars = nightMode != android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        int systemBarFlags = lightSystemBars
+        String themeMode = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_THEME, "system");
+        boolean useLightSystemBars = "light".equals(themeMode)
+                || (!"dark".equals(themeMode) && lightSystemBars);
+        int systemBarFlags = useLightSystemBars
                 ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
                 : 0;
         window.getDecorView().setSystemUiVisibility(systemBarFlags);
@@ -174,66 +226,42 @@ public final class MainActivity extends Activity {
     }
 
     private void buildInterface() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(BG);
-        root.setPadding(dp(22), dp(16), dp(22), dp(12));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            int top = 0;
-            int bottom = 0;
-            int left = 0;
-            int right = 0;
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets system = insets.getInsets(
-                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                top = system.top;
-                bottom = system.bottom;
-                left = system.left;
-                right = system.right;
-            } else {
-                top = insets.getSystemWindowInsetTop();
-                bottom = insets.getSystemWindowInsetBottom();
-                left = insets.getSystemWindowInsetLeft();
-                right = insets.getSystemWindowInsetRight();
-            }
-            view.setPadding(dp(22) + left, dp(12) + top, dp(22) + right, dp(12) + bottom);
-            return insets;
-        });
-
+        clearScreenReferences();
+        LinearLayout root = pageRoot();
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout titleStack = textStack("Background Monitor", "Root-powered · local only", 22, 14);
-        header.addView(titleStack, new LinearLayout.LayoutParams(0, -2, 1f));
-        MaterialButton exitButton = smallButton("Exit");
-        exitButton.setOnClickListener(v -> exitMonitor());
-        header.addView(exitButton);
-        root.addView(header, marginParams(-1, -2, 0, 0, 0, 16));
+        TextView pageTitle = makeText("Background Monitor", 21, INK, true);
+        header.addView(pageTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        MaterialButton settingsButton = smallButton("Settings");
+        settingsButton.setContentDescription("Open settings and app details");
+        settingsButton.setOnClickListener(v -> showSettingsScreen());
+        header.addView(settingsButton);
+        root.addView(header, marginParams(-1, -2, 0, 0, 0, 10));
 
         LinearLayout statusCard = panel(18);
-        statusCard.setOrientation(LinearLayout.VERTICAL);
-        statusTitle = makeText("Root access is needed", 22, INK, true);
-        statusDetail = makeText("Connect once to see app processes that are running outside this monitor.", 14, MUTED, false);
-        statusDetail.setLineSpacing(dp(2), 1f);
-        statusCard.addView(statusTitle);
-        statusCard.addView(statusDetail, marginParams(-1, -2, 0, 8, 0, 0));
+        statusCard.setGravity(Gravity.CENTER_VERTICAL);
+        statusCard.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout statusText = new LinearLayout(this);
+        statusText.setOrientation(LinearLayout.VERTICAL);
+        statusTitle = makeText("Root access needed", 17, INK, true);
+        statusDetail = makeText("Connect to view live background apps.", 12, MUTED, false);
+        statusDetail.setMaxLines(2);
+        statusText.addView(statusTitle);
+        statusText.addView(statusDetail, marginParams(-1, -2, 0, 3, 0, 0));
+        statusCard.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1f));
         rootButton = new MaterialButton(this);
         rootButton.setAllCaps(false);
         rootButton.setTextColor(0xFFFFFFFF);
-        rootButton.setTextSize(15);
+        rootButton.setTextSize(13);
         rootButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         rootButton.setBackgroundTintList(ColorStateList.valueOf(ACCENT));
+        rootButton.setMinWidth(0);
+        rootButton.setMinimumWidth(0);
+        rootButton.setPadding(dp(8), 0, dp(8), 0);
         rootButton.setOnClickListener(v -> readProcesses());
-        statusCard.addView(rootButton, marginParams(-1, dp(48), 0, 12, 0, 0));
-        root.addView(statusCard, marginParams(-1, -2, 0, 0, 0, 10));
-
-        LinearLayout infoCard = panel(14);
-        TextView info = makeText(
-                "Refreshes every 3 seconds while open. Force stop uses Android's package manager through root; apps may start again after you launch them or the system requests them.",
-                13, MUTED, false);
-        info.setLineSpacing(dp(2), 1f);
-        infoCard.addView(info);
-        root.addView(infoCard, marginParams(-1, -2, 0, 0, 0, 14));
+        statusCard.addView(rootButton, marginParams(-2, dp(42), 8, 0, 0, 0));
+        root.addView(statusCard, marginParams(-1, -2, 0, 0, 0, 8));
 
         TextInputLayout searchLayout = new TextInputLayout(this);
         searchLayout.setHint("Search running apps");
@@ -244,7 +272,7 @@ public final class MainActivity extends Activity {
         searchInput.setSingleLine(true);
         searchInput.setContentDescription("Search by app name or package");
         searchLayout.addView(searchInput, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(searchLayout, marginParams(-1, -2, 0, 0, 0, 12));
+        root.addView(searchLayout, marginParams(-1, -2, 0, 0, 0, 8));
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -259,63 +287,252 @@ public final class MainActivity extends Activity {
             public void afterTextChanged(Editable s) { }
         });
 
+        appFilterGroup = new MaterialButtonToggleGroup(this);
+        appFilterGroup.setSingleSelection(true);
+        appFilterGroup.setSelectionRequired(true);
+        appFilterGroup.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton allAppsButton = filterButton("All apps");
+        MaterialButton userAppsButton = filterButton("User apps");
+        MaterialButton systemAppsButton = filterButton("System apps");
+        allAppsButton.setId(View.generateViewId());
+        userAppsButton.setId(View.generateViewId());
+        systemAppsButton.setId(View.generateViewId());
+        LinearLayout.LayoutParams filterButtonParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        appFilterGroup.addView(allAppsButton, filterButtonParams);
+        appFilterGroup.addView(userAppsButton, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        appFilterGroup.addView(systemAppsButton, new LinearLayout.LayoutParams(0, dp(44), 1f));
+        int checkedFilterId = appFilter == FILTER_USER ? userAppsButton.getId()
+                : appFilter == FILTER_SYSTEM ? systemAppsButton.getId() : allAppsButton.getId();
+        appFilterGroup.check(checkedFilterId);
+        appFilterGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            appFilter = checkedId == userAppsButton.getId() ? FILTER_USER
+                    : checkedId == systemAppsButton.getId() ? FILTER_SYSTEM : FILTER_ALL;
+            renderRows();
+            renderSelectionControls();
+        });
+        root.addView(appFilterGroup, marginParams(-1, dp(44), 0, 0, 0, 7));
+
         LinearLayout sectionHeader = new LinearLayout(this);
         sectionHeader.setGravity(Gravity.CENTER_VERTICAL);
-        TextView sectionTitle = makeText("Running apps", 18, INK, true);
+        sectionTitle = makeText("Running apps", 17, INK, true);
         sectionHeader.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1f));
         selectAllButton = smallButton("Select visible");
         selectAllButton.setOnClickListener(v -> toggleSelectAll());
         sectionHeader.addView(selectAllButton);
-        root.addView(sectionHeader, marginParams(-1, -2, 2, 0, 0, 6));
+        root.addView(sectionHeader, marginParams(-1, -2, 2, 0, 0, 2));
 
-        updatedLabel = makeText("Waiting for root access", 12, MUTED, false);
-        root.addView(updatedLabel, marginParams(-1, -2, 2, 0, 0, 8));
+        updatedLabel = makeText("Waiting for root access", 11, MUTED, false);
+        root.addView(updatedLabel, marginParams(-1, -2, 2, 0, 0, 5));
 
         processScroll = new ScrollView(this);
-        processScroll.setFillViewport(false);
+        processScroll.setFillViewport(true);
         processRows = new LinearLayout(this);
         processRows.setOrientation(LinearLayout.VERTICAL);
         processScroll.addView(processRows, new ScrollView.LayoutParams(-1, -2));
         root.addView(processScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        LinearLayout helpCard = panel(14);
-        helpCard.setOrientation(LinearLayout.VERTICAL);
-        TextView helpTitle = makeText("How it works & what you need", 15, INK, true);
-        TextView helpSummary = makeText("Tap to show requirements and force-stop details", 12, MUTED, false);
-        helpDetails = makeText(
-                "A rooted phone and a root manager such as Magisk or KernelSU are required. "
-                        + "Approve the su request when prompted. The list refreshes every 3 seconds while open. "
-                        + "Force stop asks Android to stop each selected package; Android can start it again later. "
-                        + "The app has no internet permission.",
-                13, MUTED, false);
-        helpDetails.setVisibility(View.GONE);
-        helpCard.addView(helpTitle);
-        helpCard.addView(helpSummary, marginParams(-1, -2, 0, 4, 0, 0));
-        helpCard.addView(helpDetails, marginParams(-1, -2, 0, 10, 0, 0));
-        helpCard.setClickable(true);
-        helpCard.setFocusable(true);
-        helpCard.setOnClickListener(v -> {
-            helpExpanded = !helpExpanded;
-            helpDetails.setVisibility(helpExpanded ? View.VISIBLE : View.GONE);
-            helpSummary.setText(helpExpanded ? "Tap to hide details" : "Tap to show requirements and force-stop details");
-        });
-        root.addView(helpCard, marginParams(-1, -2, 0, 8, 0, 8));
-
-        LinearLayout footer = panel(14);
-        footer.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout footer = panel(10);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
         selectedLabel = makeText("0 selected", 13, MUTED, true);
-        footer.addView(selectedLabel);
+        footer.addView(selectedLabel, new LinearLayout.LayoutParams(0, -2, 1f));
         forceStopButton = new MaterialButton(this);
         forceStopButton.setAllCaps(false);
         forceStopButton.setTextColor(0xFFFFFFFF);
         forceStopButton.setTextSize(15);
         forceStopButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         forceStopButton.setBackgroundTintList(ColorStateList.valueOf(RED));
-        forceStopButton.setOnClickListener(v -> confirmForceStop());
-        footer.addView(forceStopButton, marginParams(-1, dp(48), 0, 8, 0, 0));
-        root.addView(footer, marginParams(-1, -2, 0, 10, 0, 0));
+        forceStopButton.setOnClickListener(v -> forceStopSelected());
+        footer.addView(forceStopButton, marginParams(-2, dp(48), 8, 0, 0, 0));
+        root.addView(footer, marginParams(-1, -2, 0, 6, 0, 0));
 
         setContentView(root);
+    }
+
+    private LinearLayout pageRoot() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+        root.setPadding(dp(16), dp(10), dp(16), dp(8));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top;
+            int bottom;
+            int left;
+            int right;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets system = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                top = system.top;
+                bottom = system.bottom;
+                left = system.left;
+                right = system.right;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+            }
+            view.setPadding(dp(16) + left, dp(8) + top, dp(16) + right, dp(6) + bottom);
+            return insets;
+        });
+        return root;
+    }
+
+    private void clearScreenReferences() {
+        processRows = null;
+        processScroll = null;
+        statusTitle = null;
+        statusDetail = null;
+        updatedLabel = null;
+        selectedLabel = null;
+        sectionTitle = null;
+        rootButton = null;
+        forceStopButton = null;
+        selectAllButton = null;
+        appFilterGroup = null;
+        searchInput = null;
+    }
+
+    private void showSettingsScreen() {
+        showingSettings = true;
+        mainHandler.removeCallbacks(pollRunnable);
+        clearScreenReferences();
+        buildSettingsInterface();
+    }
+
+    private void showMainScreen() {
+        showingSettings = false;
+        clearScreenReferences();
+        buildInterface();
+        renderState();
+        if (rootConnected) readProcesses();
+        if (resumed) {
+            mainHandler.removeCallbacks(pollRunnable);
+            mainHandler.postDelayed(pollRunnable, REFRESH_INTERVAL_MS);
+        }
+    }
+
+    private void buildSettingsInterface() {
+        LinearLayout root = pageRoot();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialButton backButton = smallButton("Back");
+        backButton.setContentDescription("Return to running apps");
+        backButton.setOnClickListener(v -> showMainScreen());
+        header.addView(backButton);
+        TextView title = makeText("Settings", 21, INK, true);
+        title.setPadding(dp(12), 0, 0, 0);
+        header.addView(title);
+        root.addView(header, marginParams(-1, -2, 0, 0, 0, 10));
+
+        ScrollView settingsScroll = new ScrollView(this);
+        settingsScroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+
+        content.addView(makeText("Appearance", 18, INK, true), marginParams(-1, -2, 2, 4, 0, 7));
+        String currentTheme = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_THEME, "system");
+        LinearLayout appearance = panel(12);
+        appearance.setOrientation(LinearLayout.VERTICAL);
+        addThemeOption(appearance, currentTheme, "system", "System default", "Follow your phone's light or dark setting.", true);
+        addThemeOption(appearance, currentTheme, "light", "Light", "Always use the light appearance.", true);
+        addThemeOption(appearance, currentTheme, "dark", "Dark", "Always use the dark appearance.", true);
+        addThemeOption(appearance, currentTheme, "dynamic", "Dynamic colors", "Use colors from your wallpaper (Android 12 or newer).", Build.VERSION.SDK_INT >= 31);
+        content.addView(appearance, marginParams(-1, -2, 0, 0, 0, 14));
+
+        content.addView(makeText("App details", 18, INK, true), marginParams(-1, -2, 2, 0, 0, 7));
+        LinearLayout about = panel(16);
+        about.setOrientation(LinearLayout.VERTICAL);
+        addDetail(about, "Background Monitor", "Root-powered background app manager");
+        addDetail(about, "Version", appVersionText());
+        addDetail(about, "Developer", "Ashwini215");
+        addDetail(about, "Package", getPackageName());
+        addDetail(about, "License", "GNU General Public License v3.0");
+        addDetail(about, "Source code", "github.com/ashwini215/Background-Monitor");
+        content.addView(about, marginParams(-1, -2, 0, 0, 0, 14));
+
+        content.addView(makeText("What force stop does", 18, INK, true), marginParams(-1, -2, 2, 0, 0, 7));
+        LinearLayout forceStopInfo = panel(16);
+        TextView explanation = makeText(
+                "Force stop asks Android to stop the selected app and put it in the stopped state. "
+                        + "On Android 15 and newer, it should stay stopped until you open it or take another action "
+                        + "that launches it, such as using one of its widgets. This monitor does not keep running "
+                        + "after you exit to block future launches. If an app returns to the list without you "
+                        + "opening or interacting with it, your device may be handling the request differently.",
+                13, MUTED, false);
+        explanation.setLineSpacing(dp(3), 1f);
+        forceStopInfo.addView(explanation);
+        content.addView(forceStopInfo, marginParams(-1, -2, 0, 0, 0, 14));
+
+        content.addView(makeText("Requirements & privacy", 18, INK, true), marginParams(-1, -2, 2, 0, 0, 7));
+        LinearLayout requirements = panel(16);
+        TextView requirementText = makeText(
+                "Requires Android 8.0 or newer and root access through Magisk, KernelSU, or a compatible su manager. "
+                        + "Approve the root request when prompted. Background Monitor has no internet permission "
+                        + "and checks processes only while it is open.",
+                13, MUTED, false);
+        requirementText.setLineSpacing(dp(3), 1f);
+        requirements.addView(requirementText);
+        content.addView(requirements, marginParams(-1, -2, 0, 0, 0, 14));
+
+        MaterialButton exitButton = smallButton("Exit Background Monitor");
+        exitButton.setOnClickListener(v -> exitMonitor());
+        content.addView(exitButton, marginParams(-1, dp(48), 0, 0, 0, 12));
+
+        settingsScroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        root.addView(settingsScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        setContentView(root);
+    }
+
+    private void addThemeOption(LinearLayout parent, String currentTheme, String key,
+                                String title, String description, boolean enabled) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        MaterialRadioButton radio = new MaterialRadioButton(this);
+        radio.setChecked(key.equals(currentTheme));
+        radio.setEnabled(enabled);
+        row.addView(radio, new LinearLayout.LayoutParams(dp(42), dp(48)));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        TextView name = makeText(title, 14, INK, true);
+        TextView detail = makeText(enabled ? description : "Available on Android 12 and newer.", 12, MUTED, false);
+        detail.setLineSpacing(dp(1), 1f);
+        text.addView(name);
+        text.addView(detail, marginParams(-1, -2, 0, 2, 0, 0));
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        row.setEnabled(enabled);
+        if (enabled) {
+            View.OnClickListener chooseTheme = v -> {
+                if (!key.equals(currentTheme)) {
+                    getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_THEME, key).apply();
+                    recreate();
+                }
+            };
+            row.setOnClickListener(chooseTheme);
+            radio.setOnClickListener(chooseTheme);
+        }
+        parent.addView(row, marginParams(-1, -2, 0, 0, 0, 2));
+    }
+
+    private void addDetail(LinearLayout parent, String label, String value) {
+        TextView title = makeText(label, 11, MUTED, true);
+        TextView detail = makeText(value, 14, INK, false);
+        detail.setTextIsSelectable(true);
+        parent.addView(title, marginParams(-1, -2, 0, 5, 0, 0));
+        parent.addView(detail, marginParams(-1, -2, 0, 1, 0, 4));
+    }
+
+    private String appVersionText() {
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            long versionCode = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+            return info.versionName + " (" + versionCode + ")";
+        } catch (PackageManager.NameNotFoundException exception) {
+            return "Unknown";
+        }
     }
 
     private void renderState() {
@@ -328,10 +545,10 @@ public final class MainActivity extends Activity {
         } else if (rootConnected) {
             int processCount = 0;
             for (RunningApp app : runningApps) processCount += app.processes.size();
-            statusTitle.setText(runningApps.size() + (runningApps.size() == 1 ? " app running" : " apps running"));
-            statusDetail.setText(processCount + (processCount == 1 ? " app process" : " app processes")
-                    + " detected outside Background Monitor.");
-            rootButton.setText(forceStopBusy ? "Stopping selected apps…" : (rootBusy ? "Refreshing…" : "Refresh now"));
+            statusTitle.setText(runningApps.size() + (runningApps.size() == 1 ? " app found" : " apps found"));
+            statusDetail.setText(processCount + (processCount == 1 ? " background process" : " background processes")
+                    + " · refreshes every 3 sec");
+            rootButton.setText(forceStopBusy ? "Stopping…" : (rootBusy ? "Reading…" : "Refresh"));
             rootButton.setEnabled(!forceStopBusy && !rootBusy);
         } else {
             statusTitle.setText("Root access is needed");
@@ -357,9 +574,10 @@ public final class MainActivity extends Activity {
             if (visibleApps.isEmpty()) {
                 String query = searchInput == null || searchInput.getText() == null
                         ? "" : searchInput.getText().toString().trim();
+                String category = appFilter == FILTER_USER ? "user" : appFilter == FILTER_SYSTEM ? "system" : "";
                 addEmptyMessage(query.isEmpty()
-                        ? "No background app processes found."
-                        : "No running apps match “" + query + "”.");
+                        ? "No " + (category.isEmpty() ? "background" : category) + " apps found."
+                        : "No " + (category.isEmpty() ? "" : category + " ") + "apps match “" + query + "”.");
             }
             for (RunningApp app : visibleApps) {
                 processRows.addView(makeAppRow(app), marginParams(-1, -2, 0, 0, 0, 8));
@@ -373,6 +591,9 @@ public final class MainActivity extends Activity {
                 ? "" : searchInput.getText().toString().trim().toLowerCase(Locale.ROOT);
         List<RunningApp> filtered = new ArrayList<>();
         for (RunningApp app : runningApps) {
+            boolean systemApp = isSystemApp(app.applicationInfo);
+            if (appFilter == FILTER_USER && systemApp) continue;
+            if (appFilter == FILTER_SYSTEM && !systemApp) continue;
             if (query.isEmpty()
                     || app.label.toLowerCase(Locale.ROOT).contains(query)
                     || app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
@@ -454,9 +675,10 @@ public final class MainActivity extends Activity {
     private void renderSelectionControls() {
         if (selectedLabel == null) return;
         int selectedCount = selectedPackages.size();
+        if (sectionTitle != null) sectionTitle.setText("Running apps · " + filteredApps().size());
         selectedLabel.setText(selectedCount == 0 ? "Select apps to force stop"
                 : selectedCount + (selectedCount == 1 ? " app selected" : " apps selected"));
-        forceStopButton.setText(forceStopBusy ? "Force stopping…" : "Force stop selected" + (selectedCount > 0 ? " (" + selectedCount + ")" : ""));
+        forceStopButton.setText(forceStopBusy ? "Stopping…" : "Force stop" + (selectedCount > 0 ? " (" + selectedCount + ")" : ""));
         forceStopButton.setEnabled(rootConnected && selectedCount > 0 && !forceStopBusy && !rootBusy);
         List<RunningApp> visibleApps = filteredApps();
         selectAllButton.setEnabled(rootConnected && !visibleApps.isEmpty() && !forceStopBusy && !rootBusy);
@@ -500,6 +722,11 @@ public final class MainActivity extends Activity {
         }
         renderRows();
         renderSelectionControls();
+    }
+
+    private boolean isSystemApp(ApplicationInfo applicationInfo) {
+        int systemFlags = ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP;
+        return (applicationInfo.flags & systemFlags) != 0;
     }
 
     private void readProcesses() {
@@ -665,24 +892,14 @@ public final class MainActivity extends Activity {
         return packages;
     }
 
-    private void confirmForceStop() {
-        if (selectedPackages.isEmpty() || forceStopBusy || !rootConnected) return;
+    private void forceStopSelected() {
+        if (selectedPackages.isEmpty() || forceStopBusy || rootBusy || !rootConnected) return;
         List<RunningApp> chosen = new ArrayList<>();
         for (RunningApp app : runningApps) {
             if (selectedPackages.contains(app.packageName)) chosen.add(app);
         }
         if (chosen.isEmpty()) return;
-        StringBuilder names = new StringBuilder();
-        for (RunningApp app : chosen) {
-            if (names.length() > 0) names.append('\n');
-            names.append("• ").append(app.label);
-        }
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Force stop " + chosen.size() + (chosen.size() == 1 ? " app?" : " apps?"))
-                .setMessage(names + "\n\nAndroid may start these apps again when you launch them or when the system needs them.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Force stop", (dialog, which) -> forceStop(chosen))
-                .show();
+        forceStop(chosen);
     }
 
     private void forceStop(List<RunningApp> chosen) {
@@ -697,6 +914,7 @@ public final class MainActivity extends Activity {
         }
         forceStopBusy = true;
         renderState();
+        Toast.makeText(this, "Sending force-stop request…", Toast.LENGTH_SHORT).show();
         rootWorker.execute(() -> {
             StringBuilder script = new StringBuilder("id; ");
             for (int i = 0; i < packages.size(); i++) {
@@ -706,6 +924,7 @@ public final class MainActivity extends Activity {
             }
             String error = "";
             int successCount = 0;
+            Set<String> successfulPackages = new HashSet<>();
             try {
                 RootResult result = runSu(script.toString());
                 if (!result.output.matches("(?s).*\\buid=0(?:\\b|\\().*")) {
@@ -713,7 +932,13 @@ public final class MainActivity extends Activity {
                 }
                 Matcher matcher = Pattern.compile("__STOP_RESULT_(\\d+)=(\\d+)").matcher(result.output);
                 while (matcher.find()) {
-                    if ("0".equals(matcher.group(2))) successCount++;
+                    if ("0".equals(matcher.group(2))) {
+                        int packageIndex = Integer.parseInt(matcher.group(1));
+                        if (packageIndex >= 0 && packageIndex < packages.size()) {
+                            successfulPackages.add(packages.get(packageIndex));
+                            successCount++;
+                        }
+                    }
                 }
                 if (successCount < packages.size()) {
                     error = "Android accepted " + successCount + " of " + packages.size() + " force-stop requests.";
@@ -723,14 +948,19 @@ public final class MainActivity extends Activity {
             }
             int success = successCount;
             String operationError = error;
+            Set<String> stoppedPackages = successfulPackages;
             mainHandler.post(() -> {
                 forceStopBusy = false;
+                selectedPackages.removeAll(stoppedPackages);
                 if (!operationError.isEmpty()) {
                     Toast.makeText(this, operationError, Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(this, "Force-stop requested for " + success + " app(s).", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Android accepted " + success + " force-stop request(s). Refreshing…", Toast.LENGTH_SHORT).show();
                 }
-                readProcesses();
+                renderState();
+                mainHandler.postDelayed(() -> {
+                    if (resumed && !showingSettings) readProcesses();
+                }, 800L);
             });
         });
     }
@@ -754,14 +984,6 @@ public final class MainActivity extends Activity {
         return view;
     }
 
-    private LinearLayout textStack(String title, String subtitle, int titleSize, int subtitleSize) {
-        LinearLayout stack = new LinearLayout(this);
-        stack.setOrientation(LinearLayout.VERTICAL);
-        stack.addView(makeText(title, titleSize, INK, true));
-        stack.addView(makeText(subtitle, subtitleSize, MUTED, false), marginParams(-1, -2, 0, 3, 0, 0));
-        return stack;
-    }
-
     private MaterialButton smallButton(String label) {
         MaterialButton button = new MaterialButton(this);
         button.setText(label);
@@ -772,6 +994,20 @@ public final class MainActivity extends Activity {
         button.setMinimumWidth(0);
         button.setPadding(dp(10), 0, dp(10), 0);
         button.setBackgroundTintList(ColorStateList.valueOf(PALE_BLUE));
+        return button;
+    }
+
+    private MaterialButton filterButton(String label) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setCheckable(true);
+        button.setTextSize(12);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(dp(44));
+        button.setMinimumHeight(dp(44));
+        button.setPadding(dp(4), 0, dp(4), 0);
         return button;
     }
 
@@ -842,4 +1078,3 @@ public final class MainActivity extends Activity {
         }
     }
 }
-
