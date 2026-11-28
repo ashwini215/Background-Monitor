@@ -38,20 +38,9 @@ $keystore = Join-Path $env:USERPROFILE "background-monitor-release.p12"
 
 Paste the clipboard into the ANDROID_KEYSTORE_BASE64 secret form and save it.
 
-## 3. Update the source files on GitHub's website
+## 3. Confirm the source version
 
-Download and extract the updated source archive. In your repository, open the **Code** tab and make sure the branch selector says **main**. Replace these existing files from the extracted archive:
-
-- `app/src/main/java/com/local/taskwatch/MainActivity.java`
-- `app/src/main/java/com/local/taskwatch/BackgroundMonitorApp.java`
-- `app/src/main/res/values/styles.xml`
-- `app/build.gradle`
-- `README.md`
-- `GITHUB_RELEASE_GUIDE.md`
-
-For each file, open it in GitHub and click the pencil (**Edit this file**). Open the matching extracted file in a text editor such as Notepad, copy its complete contents, then select all the old text in GitHub's editor and paste the new contents. Scroll to **Commit changes**, enter a short message such as `Update app interface and settings`, and commit to `main`. Repeat for the other five files.
-
-The existing workflow files and repository secrets do not need to change for this update. The archive includes `.github`, but leave those workflow files as they are in your repository.
+Before building, open **Code > app > build.gradle** in the repository and confirm that `versionName` is `1.3.1` and `versionCode` is `5`. The updated source must be on `main`; there is no need to replace files through GitHub's website for this release.
 
 ## 4. Run the release build
 
@@ -61,7 +50,7 @@ The existing workflow files and repository secrets do not need to change for thi
 4. When the run completes with a green check, open it and download the BackgroundMonitor-release-apk artifact.
 5. Extract the downloaded artifact ZIP to get app-release.apk.
 
-You can also push a tag beginning with v (for example, `v1.3.0`) to run the release workflow.
+You can also push a tag beginning with v (for example, `v1.3.1`) to run the release workflow.
 
 ## 5. Install it
 
@@ -71,4 +60,4 @@ On the phone, allow installation from the browser or file manager you use, then 
 
 ## Optional: publish a GitHub Release
 
-The workflow creates a downloadable Actions artifact. To publish it on the repository's Releases page, download and extract the artifact, choose **Releases > Draft a new release**, create a tag such as `v1.3.0`, attach `app-release.apk`, and publish the release.
+The workflow creates a downloadable Actions artifact. To publish it on the repository's Releases page, download and extract the artifact, choose **Releases > Draft a new release**, create a tag such as `v1.3.1`, attach `app-release.apk`, and publish the release.

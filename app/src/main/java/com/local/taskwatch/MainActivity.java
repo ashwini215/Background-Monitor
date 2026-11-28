@@ -79,6 +79,8 @@ public final class MainActivity extends Activity {
     private final ExecutorService rootWorker = Executors.newSingleThreadExecutor();
     private final Set<String> selectedPackages = new HashSet<>();
     private final Map<String, Drawable> iconCache = new HashMap<>();
+    private final Map<String, View> appRowViews = new LinkedHashMap<>();
+    private final Map<String, String> appRowSignatures = new HashMap<>();
     private volatile java.lang.Process activeRootProcess;
 
     private LinearLayout processRows;
@@ -93,6 +95,8 @@ public final class MainActivity extends Activity {
     private MaterialButton selectAllButton;
     private MaterialButtonToggleGroup appFilterGroup;
     private TextInputEditText searchInput;
+    private View emptyStateRow;
+    private String emptyStateMessage;
     private boolean showingSettings;
     private int appFilter = FILTER_ALL;
 
@@ -392,6 +396,10 @@ public final class MainActivity extends Activity {
         selectAllButton = null;
         appFilterGroup = null;
         searchInput = null;
+        appRowViews.clear();
+        appRowSignatures.clear();
+        emptyStateRow = null;
+        emptyStateMessage = null;
     }
 
     private void showSettingsScreen() {
@@ -546,8 +554,7 @@ public final class MainActivity extends Activity {
             int processCount = 0;
             for (RunningApp app : runningApps) processCount += app.processes.size();
             statusTitle.setText(runningApps.size() + (runningApps.size() == 1 ? " app found" : " apps found"));
-            statusDetail.setText(processCount + (processCount == 1 ? " background process" : " background processes")
-                    + " · refreshes every 3 sec");
+            statusDetail.setText(processCount + (processCount == 1 ? " background process" : " background processes"));
             rootButton.setText(forceStopBusy ? "Stopping…" : (rootBusy ? "Reading…" : "Refresh"));
             rootButton.setEnabled(!forceStopBusy && !rootBusy);
         } else {
@@ -565,25 +572,76 @@ public final class MainActivity extends Activity {
 
     private void renderRows() {
         if (processRows == null) return;
-        int scrollY = processScroll.getScrollY();
-        processRows.removeAllViews();
         if (!rootConnected) {
-            addEmptyMessage(rootBusy ? "Waiting for the root manager…" : "Connect to root to view live app processes.");
-        } else {
-            List<RunningApp> visibleApps = filteredApps();
-            if (visibleApps.isEmpty()) {
-                String query = searchInput == null || searchInput.getText() == null
-                        ? "" : searchInput.getText().toString().trim();
-                String category = appFilter == FILTER_USER ? "user" : appFilter == FILTER_SYSTEM ? "system" : "";
-                addEmptyMessage(query.isEmpty()
-                        ? "No " + (category.isEmpty() ? "background" : category) + " apps found."
-                        : "No " + (category.isEmpty() ? "" : category + " ") + "apps match “" + query + "”.");
-            }
-            for (RunningApp app : visibleApps) {
-                processRows.addView(makeAppRow(app), marginParams(-1, -2, 0, 0, 0, 8));
+            showEmptyState(rootBusy ? "Waiting for the root manager…" : "Connect to root to view live app processes.");
+            return;
+        }
+
+        List<RunningApp> visibleApps = filteredApps();
+        if (visibleApps.isEmpty()) {
+            String query = searchInput == null || searchInput.getText() == null
+                    ? "" : searchInput.getText().toString().trim();
+            String category = appFilter == FILTER_USER ? "user" : appFilter == FILTER_SYSTEM ? "system" : "";
+            showEmptyState(query.isEmpty()
+                    ? "No " + (category.isEmpty() ? "background" : category) + " apps found."
+                    : "No " + (category.isEmpty() ? "" : category + " ") + "apps match “" + query + "”.");
+            return;
+        }
+
+        if (emptyStateRow != null) {
+            processRows.removeView(emptyStateRow);
+            emptyStateRow = null;
+            emptyStateMessage = null;
+        }
+
+        Set<String> visiblePackages = new HashSet<>();
+        for (RunningApp app : visibleApps) visiblePackages.add(app.packageName);
+        for (String packageName : new ArrayList<>(appRowViews.keySet())) {
+            if (!visiblePackages.contains(packageName)) {
+                processRows.removeView(appRowViews.remove(packageName));
+                appRowSignatures.remove(packageName);
             }
         }
-        processRows.post(() -> processScroll.scrollTo(0, scrollY));
+
+        for (int i = 0; i < visibleApps.size(); i++) {
+            RunningApp app = visibleApps.get(i);
+            String signature = rowSignature(app);
+            View row = appRowViews.get(app.packageName);
+            if (row == null || !signature.equals(appRowSignatures.get(app.packageName))) {
+                View updatedRow = makeAppRow(app);
+                if (row != null) processRows.removeView(row);
+                row = updatedRow;
+                appRowViews.put(app.packageName, row);
+                appRowSignatures.put(app.packageName, signature);
+            }
+            int currentIndex = processRows.indexOfChild(row);
+            if (currentIndex != i) {
+                if (currentIndex >= 0) processRows.removeView(row);
+                processRows.addView(row, Math.min(i, processRows.getChildCount()),
+                        marginParams(-1, -2, 0, 0, 0, 8));
+            }
+        }
+    }
+
+    private void showEmptyState(String message) {
+        if (message.equals(emptyStateMessage) && emptyStateRow != null
+                && emptyStateRow.getParent() == processRows) return;
+        processRows.removeAllViews();
+        appRowViews.clear();
+        appRowSignatures.clear();
+        LinearLayout card = panel(18);
+        TextView text = makeText(message, 14, MUTED, false);
+        text.setGravity(Gravity.CENTER);
+        text.setMinHeight(dp(88));
+        card.addView(text);
+        processRows.addView(card, marginParams(-1, -2, 0, 0, 0, 8));
+        emptyStateRow = card;
+        emptyStateMessage = message;
+    }
+
+    private String rowSignature(RunningApp app) {
+        return app.label + "\u0000" + processDetails(app) + "\u0000"
+                + selectedPackages.contains(app.packageName);
     }
 
     private List<RunningApp> filteredApps() {
@@ -631,6 +689,7 @@ public final class MainActivity extends Activity {
             if (checked) selectedPackages.add(app.packageName);
             else selectedPackages.remove(app.packageName);
             row.setBackground(round(checked ? PALE_BLUE : PANEL, 16));
+            appRowSignatures.put(app.packageName, rowSignature(app));
             renderSelectionControls();
         });
         row.addView(checkbox);
@@ -663,15 +722,6 @@ public final class MainActivity extends Activity {
         return icon;
     }
 
-    private void addEmptyMessage(String message) {
-        LinearLayout card = panel(18);
-        TextView text = makeText(message, 14, MUTED, false);
-        text.setGravity(Gravity.CENTER);
-        text.setMinHeight(dp(88));
-        card.addView(text);
-        processRows.addView(card, marginParams(-1, -2, 0, 0, 0, 8));
-    }
-
     private void renderSelectionControls() {
         if (selectedLabel == null) return;
         int selectedCount = selectedPackages.size();
@@ -694,12 +744,12 @@ public final class MainActivity extends Activity {
 
     private void updateTimestamp() {
         if (updatedLabel == null) return;
-        if (rootBusy) {
+        if (rootConnected) {
+            updatedLabel.setText("Auto-refresh · checks quietly every 3 sec");
+        } else if (rootBusy) {
             updatedLabel.setText("Reading process list…");
         } else if (!rootConnected) {
             updatedLabel.setText("Root access not connected");
-        } else {
-            updatedLabel.setText("Live snapshot · " + new java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new java.util.Date()));
         }
     }
 
@@ -733,7 +783,9 @@ public final class MainActivity extends Activity {
         if (rootBusy || forceStopBusy) return;
         rootBusy = true;
         rootError = "";
-        renderState();
+        // Keep the existing screen and process rows in place while the worker reads a fresh snapshot.
+        // Only the initial root connection needs a visible loading state.
+        if (!rootConnected) renderState();
         rootWorker.execute(() -> {
             Snapshot snapshot = null;
             String error = "";

@@ -6,7 +6,7 @@ Background Monitor is a small, offline Android utility for rooted phones. It sho
 ## What the app does
 
 - Shows installed apps with detected background processes, app icons, process counts, and process IDs.
-- Refreshes automatically every three seconds while the app is open; the toolbar also has a manual refresh action.
+- Checks for process changes every three seconds on a background worker while the app is open. Existing list rows stay in place; only changed, added, or removed rows update. The toolbar also has a manual refresh action.
 - Searches by app label or package name.
 - Filters the process list to all apps, user-installed apps, or system apps; search and Select visible follow the chosen filter.
 - Selects all visible search results or individual apps, then sends a force-stop request with one tap.
@@ -34,7 +34,7 @@ Force stop asks Android to stop each selected package for the current user and p
 
 See [GITHUB_RELEASE_GUIDE.md](GITHUB_RELEASE_GUIDE.md) for the signing-key setup, repository secrets, workflow run, and APK download steps. The release workflow is .github/workflows/release-apk.yml.
 
-GitHub Actions builds version 1.3.0 with Java 17, Gradle 9.5, Android Gradle Plugin 9.3.3, and the Android 17 preview SDK (API 37). The Android 17 SDK requires the preview channel during SDK installation. The APK itself runs offline.
+GitHub Actions builds version 1.3.1 with Java 17, Gradle 9.5, Android Gradle Plugin 9.3.3, and the Android 17 preview SDK (API 37). The Android 17 SDK requires the preview channel during SDK installation. The APK itself runs offline.
 
 ## Source and acknowledgement
 
